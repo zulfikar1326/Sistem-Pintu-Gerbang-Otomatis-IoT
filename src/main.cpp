@@ -9,6 +9,8 @@
 #include <Buzzer.h>
 #include <EasyLed.h>
 
+
+
 // ========================== OLED setup ========================== 
 #define PIN_SDA_OLED 21
 #define PIN_SCL_OLED 22
@@ -25,34 +27,34 @@ Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 #define BLYNK_AUTH_TOKEN "MfkjtIdO6LV4WNO3RKt2sjikqxI8HlXp"
 #include <BlynkSimpleEsp32.h>
 
+
+
 // ========================== WIFI SETUP ========================== 
-const char* WIFI_SSID = "24";          // Ganti dengan SSID WiFi
-const char* PASS_WIFI = "11113333";  // Ganti dengan password WiFi
+const char* WIFI_SSID = "24";
+const char* PASS_WIFI = "11113333";
 
 // ========================== RFID SETUP PIN ========================== 
-// RFID setup
 #define SS_PIN 5
 #define RST_PIN 4
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-// LED pins
+// ========================== PINs ==========================
 #define PIN_LED_RED 33
 #define PIN_LED_YELLOW 32
 #define PIN_LED_BLUE 2
 #define PIN_SERVO 13
 #define PIN_BUZZER 15
 
-
-
-// ========================== INISIALISASI LIBRARY ==========================
+// ========================== INISIALISASI ==========================
 Servo accessServo;
-// ========================== INISIALISASI BUZZER ==========================
 Buzzer Buzzer(PIN_BUZZER);
-EasyLed led_red(PIN_LED_YELLOW, EasyLed::ActiveLevel::Low, EasyLed::State::Off)
+EasyLed led_red(PIN_LED_YELLOW, EasyLed::ActiveLevel::Low, EasyLed::State::Off);
+BlynkTimer timer;
 
+String lastUID = "";
+int lastStatus = -1;
 
-
-// ========================== CUSTOM TEXT OLED 1 LINE ==========================
+// ========================== OLED ==========================
 void display_OLED_CUSTOM_1(String line1, int x1, int y1) {
   display.clearDisplay();
   display.setTextSize(1);
@@ -64,7 +66,7 @@ void display_OLED_CUSTOM_1(String line1, int x1, int y1) {
   display.clearDisplay();
 }
 
-// ========================== BLYNK SETUP ==========================
+// ========================== BLYNK ==========================
 void blynk_access() {
   Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, PASS_WIFI);
   Serial.println("Blynk Connected");
@@ -78,40 +80,39 @@ void kirim_ID_CARD_blynk(byte length ,int VPIN) {
   uidString.toUpperCase();
   Serial.print("UID Kartu HEX: ");
   Serial.println(uidString);
-  Blynk.virtualWrite(VPIN, uidString);            // Kirim VALUE ke widget di Virtual Pin VPIN
+  Blynk.virtualWrite(VPIN, uidString);
+
+  lastUID = uidString;
 }
 
-void status_True_Card(int VPIN, int value) {
-  Blynk.virtualWrite(VPIN, "True");            // Kirim VALUE ke widget di Virtual Pin VPIN
+void updateStatusKeBlynk() {
+  Blynk.virtualWrite(0, lastUID);    // UID
+  Blynk.virtualWrite(4, lastStatus); // Status akses: 1/0
 }
 
 // ========================== PIN setup ==========================
 void pin_Mode(int LED_BLUE, int LED_YELLOW, int LED_RED, int SERVO_PIN) {
-  
-  // INISIALISASI LED
   pinMode(LED_RED, OUTPUT);
   pinMode(PIN_LED_YELLOW, OUTPUT);
   pinMode(PIN_LED_BLUE, OUTPUT);
-
-  // INISIALISASI SERVO
   accessServo.attach(SERVO_PIN);
-
 }
-// ========================== SETUP SERVO ==========================
+
+// ========================== SERVO ==========================
 void servo_gerak(int value){
   Serial.println("SERVO AKSES ON");
   accessServo.write(value);
   delay(1000);
   accessServo.write(0);
 }
-// ========================== CARD UIDsetup ==========================
+
+// ========================== UID Setup ==========================
 byte card_uuid[][4] = {
-  {0x6A, 0x2B, 0xC1, 0x01}, // Admmin Card
-  // {0xDE, 0xDF, 0x32, 0x03}, // Client Card
+  {0x6A, 0x2B, 0xC1, 0x01}, // Admin Card
 };
+
 const int totalUID = sizeof(card_uuid) / sizeof(card_uuid[0]);
 
-// ========================== CARD VERIFIKASI ==========================
 bool isAuthorized(byte *uid) {
   for (int i = 0; i < totalUID; i++) {
     bool match = true;
@@ -138,95 +139,81 @@ void berhasil_verifikasi(){
   display_OLED_CUSTOM_1("Akses Diterima", 0, 0);
   Serial.println(" → AKSES DITERIMA");
 
-  // MENHIDUPKAN LED BIRU
   digitalWrite(PIN_LED_BLUE, HIGH);
   delay(500);
   digitalWrite(PIN_LED_BLUE, LOW);
-  
-  // TURN ON SERVO
+
   servo_gerak(100);
 
-  // MENGIRIM KAN STATUS KARTU DITERIMA KE BYLNK
-  Blynk.virtualWrite(4, 1); 
+  lastStatus = 1;
 }
 
 void gagal_verifikasi(){
-
-  Serial.print("UID Kartu HEX: ");
-  Serial.println(isAuthorized(mfrc522.uid.uidByte));
   display_OLED_CUSTOM_1("Akses Ditolak", 0, 0);
-
-  // MENGHIDUPKAN LED MERAH
-  digitalWrite(PIN_LED_RED, HIGH);
-
-  // MENAMPILKAN KE SERIAL_MONITOR
-  Serial.println("Kartu tidak terdaftar");
   Serial.println(" → AKSES DITOLAK");
 
-  // MENGIRIM KAN STATUS KARTU GAGAL KE BYLNK
-  Blynk.virtualWrite(4, 0);
+  digitalWrite(PIN_LED_RED, HIGH);
+  delay(500);
+  digitalWrite(PIN_LED_RED, LOW);
+
+  lastStatus = 0;
 }
 
 void buka_gerbang_darurat(){
   display_OLED_CUSTOM_1("Gerbang Darurat Dibuka", 0, 0);
   Serial.println(" → GERBANG DIBUKA");
 
-  // MENHIDUPKAN LED BIRU
   digitalWrite(PIN_LED_BLUE, HIGH);
   delay(500);
   digitalWrite(PIN_LED_BLUE, LOW);
-  
-  // TURN ON SERVO
-  servo_gerak(100);
 
-  // MENGIRIM KAN STATUS KARTU DITERIMA KE BYLNK
-  Blynk.virtualWrite(4, 1); 
+  servo_gerak(100);
+  lastStatus = 1;
 }
 
-
-
 void setup() {
-    Serial.begin(115200); // Initialize serial communications with the PC
+  Serial.begin(115200);
+  digitalWrite(PIN_BUZZER, LOW);
+  Wire.begin(PIN_SDA_OLED, PIN_SCL_OLED);
 
-    digitalWrite(PIN_BUZZER, LOW);
-    Wire.begin(PIN_SDA_OLED, PIN_SCL_OLED);
-    pin_Mode(PIN_LED_BLUE, PIN_LED_YELLOW, PIN_LED_RED, PIN_SERVO);
-    blynk_access();
-    
-    SPI.begin();        // Init SPI bus
-    mfrc522.PCD_Init(); // Init MFRC522 card
-    display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS);
+  pin_Mode(PIN_LED_BLUE, PIN_LED_YELLOW, PIN_LED_RED, PIN_SERVO);
+  blynk_access();
 
-    display_OLED_CUSTOM_1("KELOMPOK 7", 0, 0);
+  SPI.begin();
+  mfrc522.PCD_Init();
+  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS);
 
-    display_OLED_CUSTOM_1("Tempelkan Kartu untuk Autentifikasi", 0, 20);
-    Serial.println("Tempelkan kartu untuk autentikasi...");
+  display_OLED_CUSTOM_1("KELOMPOK 7", 0, 0);
+  display_OLED_CUSTOM_1("Tempelkan Kartu untuk Autentifikasi", 0, 20);
+
+  Serial.println("Tempelkan kartu untuk autentikasi...");
+
+  timer.setInterval(3000L, updateStatusKeBlynk); // Update ke Blynk tiap 3 detik
 }
 
 void loop(){
-  
+  Blynk.run();
+  timer.run();
+
   digitalWrite(PIN_LED_RED, HIGH);
   display_OLED_CUSTOM_1("Menunggu Kartu...", 0, 0);
+
   if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
-    return; // No new card present or error reading card
+    return;
   }
 
   Serial.print("UID Kartu: ");
   printUID(mfrc522.uid.uidByte, mfrc522.uid.size);
   Serial.println();
 
-  kirim_ID_CARD_blynk(mfrc522.uid.size,0);
+  kirim_ID_CARD_blynk(mfrc522.uid.size, 0);
 
-
-  // MODIFIKASI SOURCE
   if (isAuthorized(mfrc522.uid.uidByte)) {
     berhasil_verifikasi();    
-  } else if(!isAuthorized(mfrc522.uid.uidByte)) {
+  } else {
     gagal_verifikasi();
   }
 
-
-  
   mfrc522.PICC_HaltA();
   mfrc522.PCD_StopCrypto1();
   delay(500);
