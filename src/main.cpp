@@ -6,8 +6,8 @@
 #include <Adafruit_GFX.h>
 #include <WiFi.h>
 #include <ESP32Servo.h>
-// #include <Buzzer.h>
-// #include <BlynkGO_Buzzer.h>
+#include <Buzzer.h>
+#include <EasyLed.h>
 
 // ========================== OLED setup ========================== 
 #define PIN_SDA_OLED 21
@@ -40,15 +40,19 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 #define PIN_LED_YELLOW 32
 #define PIN_LED_BLUE 2
 #define PIN_SERVO 13
-#define PIN_BUZZER 14
+#define PIN_BUZZER 15
+
+
 
 // ========================== INISIALISASI LIBRARY ==========================
 Servo accessServo;
-// Buzzer buzzer(PIN_BUZZER);
-// Buzzer buzzer(PIN_BUZZER);
+// ========================== INISIALISASI BUZZER ==========================
+Buzzer Buzzer(PIN_BUZZER);
+EasyLed led_red(PIN_LED_YELLOW, EasyLed::ActiveLevel::Low, EasyLed::State::Off)
 
 
 
+// ========================== CUSTOM TEXT OLED 1 LINE ==========================
 void display_OLED_CUSTOM_1(String line1, int x1, int y1) {
   display.clearDisplay();
   display.setTextSize(1);
@@ -100,23 +104,6 @@ void servo_gerak(int value){
   delay(1000);
   accessServo.write(0);
 }
-
-// ========================== SETUP BUZZER ==========================
-void buzzer_Berhasil(){
-  Serial.println("BUZZER AKSES ON");
-  // buzzer.beep(1);
-  digitalWrite(PIN_BUZZER, HIGH);
-  delay(500);
-  digitalWrite(PIN_BUZZER, LOW);
-}
-void buzzer_Gagal(){
-  Serial.println("BUZZER AKSES ON");
-  digitalWrite(PIN_BUZZER, HIGH);
-  delay(800);
-  digitalWrite(PIN_BUZZER, LOW);
-  
-}
-
 // ========================== CARD UIDsetup ==========================
 byte card_uuid[][4] = {
   {0x6A, 0x2B, 0xC1, 0x01}, // Admmin Card
@@ -147,13 +134,64 @@ void printUID(byte *buffer, byte length) {
   }
 }
 
+void berhasil_verifikasi(){
+  display_OLED_CUSTOM_1("Akses Diterima", 0, 0);
+  Serial.println(" → AKSES DITERIMA");
+
+  // MENHIDUPKAN LED BIRU
+  digitalWrite(PIN_LED_BLUE, HIGH);
+  delay(500);
+  digitalWrite(PIN_LED_BLUE, LOW);
+  
+  // TURN ON SERVO
+  servo_gerak(100);
+
+  // MENGIRIM KAN STATUS KARTU DITERIMA KE BYLNK
+  Blynk.virtualWrite(4, 1); 
+}
+
+void gagal_verifikasi(){
+
+  Serial.print("UID Kartu HEX: ");
+  Serial.println(isAuthorized(mfrc522.uid.uidByte));
+  display_OLED_CUSTOM_1("Akses Ditolak", 0, 0);
+
+  // MENGHIDUPKAN LED MERAH
+  digitalWrite(PIN_LED_RED, HIGH);
+
+  // MENAMPILKAN KE SERIAL_MONITOR
+  Serial.println("Kartu tidak terdaftar");
+  Serial.println(" → AKSES DITOLAK");
+
+  // MENGIRIM KAN STATUS KARTU GAGAL KE BYLNK
+  Blynk.virtualWrite(4, 0);
+}
+
+void buka_gerbang_darurat(){
+  display_OLED_CUSTOM_1("Gerbang Darurat Dibuka", 0, 0);
+  Serial.println(" → GERBANG DIBUKA");
+
+  // MENHIDUPKAN LED BIRU
+  digitalWrite(PIN_LED_BLUE, HIGH);
+  delay(500);
+  digitalWrite(PIN_LED_BLUE, LOW);
+  
+  // TURN ON SERVO
+  servo_gerak(100);
+
+  // MENGIRIM KAN STATUS KARTU DITERIMA KE BYLNK
+  Blynk.virtualWrite(4, 1); 
+}
+
+
 
 void setup() {
     Serial.begin(115200); // Initialize serial communications with the PC
+
+    digitalWrite(PIN_BUZZER, LOW);
     Wire.begin(PIN_SDA_OLED, PIN_SCL_OLED);
     pin_Mode(PIN_LED_BLUE, PIN_LED_YELLOW, PIN_LED_RED, PIN_SERVO);
     blynk_access();
-    while (!Serial);    // Do nothing if no serial port is opened (added for Arduinos based on ATMEGA32U4)
     
     SPI.begin();        // Init SPI bus
     mfrc522.PCD_Init(); // Init MFRC522 card
@@ -179,65 +217,12 @@ void loop(){
 
   kirim_ID_CARD_blynk(mfrc522.uid.size,0);
 
-  // ORIGINAL SOURCE
-  // if (isAuthorized(mfrc522.uid.uidByte)) {
-  //   digitalWrite(PIN_LED_RED, LOW);
-
-  //   display_OLED_CUSTOM_1("Akses Diterima", 0, 0);
-  //   Serial.println(" → AKSES DITERIMA");
-
-
-  //   // Turn on the green LED
-  //   digitalWrite(PIN_LED_BLUE, HIGH);
-  //   delay(500);
-  //   digitalWrite(PIN_LED_BLUE, LOW);
-    
-  //   //TURN ON BUZZER
-  //   // buzzer_Berhasil();
-    
-  //   // TURN ON SERVO
-  //   servo_gerak(100);
-
-  // } else {
-  //   Serial.print("UID Kartu HEX: ");
-  //   Serial.println(isAuthorized(mfrc522.uid.uidByte));
-  //   // buzzer_Gagal();
-
-  //   display_OLED_CUSTOM_1("Akses Ditolak", 0, 0);
-  //   digitalWrite(PIN_LED_RED, HIGH);
-  //   Serial.println("Kartu tidak terdaftar");
-  //   Serial.println(" → AKSES DITOLAK");
-  // }
-
 
   // MODIFIKASI SOURCE
   if (isAuthorized(mfrc522.uid.uidByte)) {
-    digitalWrite(PIN_LED_RED, LOW);
-
-    display_OLED_CUSTOM_1("Akses Diterima", 0, 0);
-    Serial.println(" → AKSES DITERIMA");
-
-
-    // Turn on the green LED
-    digitalWrite(PIN_LED_BLUE, HIGH);
-    delay(500);
-    digitalWrite(PIN_LED_BLUE, LOW);
-    
-    //TURN ON BUZZER
-    buzzer_Berhasil();
-    
-    // TURN ON SERVO
-    servo_gerak(100);
-
+    berhasil_verifikasi();    
   } else if(!isAuthorized(mfrc522.uid.uidByte)) {
-    Serial.print("UID Kartu HEX: ");
-    Serial.println(isAuthorized(mfrc522.uid.uidByte));
-    buzzer_Gagal();
-
-    display_OLED_CUSTOM_1("Akses Ditolak", 0, 0);
-    digitalWrite(PIN_LED_RED, HIGH);
-    Serial.println("Kartu tidak terdaftar");
-    Serial.println(" → AKSES DITOLAK");
+    gagal_verifikasi();
   }
 
 
