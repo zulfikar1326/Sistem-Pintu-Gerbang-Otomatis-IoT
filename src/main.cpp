@@ -23,9 +23,10 @@ Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 #define BLYNK_AUTH_TOKEN "MfkjtIdO6LV4WNO3RKt2sjikqxI8HlXp"
 #include <BlynkSimpleEsp32.h>
 
+
 // ========================== WIFI SETUP ========================== 
-const char* WIFI_SSID = "24";          // GANTI DENGAN SSID WIFI
-const char* PASS_WIFI = "11113333";    // GANTI DENGAN PASSWORD WIFI
+const char* WIFI_SSID = "24";          // SSID WIFI YANG AKAN DI CONNECT
+const char* PASS_WIFI = "11113333";    // PASSWORD WIFI YANG AKAN DI CONNECT
 
 // ========================== RFID SETUP PIN ========================== 
 #define SS_PIN 5
@@ -35,10 +36,29 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 // ========================== PIN LED, SERVO, BUZZER ========================== 
 #define PIN_LED_BLUE 2
 #define PIN_SERVO 13
-#define PIN_BUZZER 15
+#define PIN_RED_LED 12
+#define PIN_TRIG_PIN  26
+#define PIN_ECHO_PIN  25
+
 
 // ========================== INISIALISASI LIBRARY SERVO, BUZZER, LED ========================== 
 Servo accessServo;
+
+// ========================== INISIALISASI Variabel ULTRASONIK ==========================
+float jarak_cm;
+
+
+
+// ========================== CUSTOM TEXT OLED 1 LINE ========================== 
+void display_text_pintu_darurat(String text, int x, int y) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(x, y);
+  display.print(text);
+  display.display();
+}
+
 
 // ========================== CUSTOM TEXT OLED 1 LINE ========================== 
 void display_OLED_CUSTOM_1(String line1, int x1, int y1) {
@@ -69,25 +89,20 @@ void kirim_ID_CARD_blynk(byte length ,int VPIN) {
   Serial.println(uidString);
   Blynk.virtualWrite(VPIN, uidString);            // KIRIM UID KE BLYNK VIRTUAL PIN VPIN
 }
-
-// ========================== KIRIM STATUS AKSES = TRUE ========================== 
-void status_True_Card(int VPIN, int value) {
-  Blynk.virtualWrite(VPIN, "True");               // KIRIM STATUS TRUE KE WIDGET DI VPIN
-}
-
 // ========================== SET PIN MODE ========================== 
-void pin_Mode(int LED_BLUE, int LED_YELLOW, int LED_RED, int SERVO_PIN) {
-  pinMode(LED_RED, OUTPUT);
-  pinMode(PIN_LED_BLUE, OUTPUT);
+void pin_Mode(int LED_BLUE, int SERVO_PIN, int ECHO_PIN, int TRIG_PIN) {
+  read_ultrasonic(TRIG_PIN, ECHO_PIN);
+  pinMode(PIN_LED_BLUE, OUTPUT);// Triger INPUT
+  // Echo OUTPUT 
+
   accessServo.attach(SERVO_PIN);
 }
-
 // ========================== GERAKKAN SERVO UNTUK AKSES ========================== 
-void servo_gerak(int value){
+void servo_gerak(int value_gerak,int delayTime, int value_kembali) {
   Serial.println("SERVO AKSES ON");
-  accessServo.write(value);
-  delay(1000);
-  accessServo.write(0);
+  accessServo.write(value_gerak);
+  delay(delayTime);
+  accessServo.write(value_kembali);
 }
 
 // ========================== DAFTAR UID KARTU YANG DIAUTH ========================== 
@@ -126,9 +141,12 @@ void berhasil_verifikasi(){
   display_OLED_CUSTOM_1("AKSES DITERIMA", 0, 0);
   Serial.println(" → AKSES DITERIMA");
   digitalWrite(PIN_LED_BLUE, HIGH);
-  delay(500);
+  servo_gerak(100,1000,100);
+  delay(1000);
+  servo_gerak(0,1000,0);
   digitalWrite(PIN_LED_BLUE, LOW);
-  servo_gerak(100);
+
+
   Blynk.virtualWrite(4, 1); // KIRIM STATUS TRUE
 }
 
@@ -136,28 +154,78 @@ void berhasil_verifikasi(){
 void gagal_verifikasi(){
   Serial.print("UID Kartu HEX: ");
   Serial.println(isAuthorized(mfrc522.uid.uidByte));
+  
   display_OLED_CUSTOM_1("AKSES DITOLAK", 0, 0);
   Serial.println("KARTU TIDAK TERDAFTAR");
   Serial.println(" → AKSES DITOLAK");
   Blynk.virtualWrite(4, 0); // KIRIM STATUS FALSE
-}
+  }
 
 // ========================== FUNGSI BUKA GERBANG DARURAT ========================== 
 void buka_gerbang_darurat(){
-  display_OLED_CUSTOM_1("GERBANG DARURAT DIBUKA", 0, 0);
+  display_text_pintu_darurat("GERBANG DARURAT DIBUKA", 0, 0);
   Serial.println(" → GERBANG DIBUKA");
   digitalWrite(PIN_LED_BLUE, HIGH);
-  delay(500);
-  digitalWrite(PIN_LED_BLUE, LOW);
-  servo_gerak(100);
-  Blynk.virtualWrite(4, 1); // KIRIM STATUS DARURAT
+  servo_gerak(100,1000,100);
+  Blynk.virtualWrite(2, 1); // KIRIM STATUS DARURAT
 }
+
+void tutup_gerbang_darurat(){
+  display.clearDisplay();
+  digitalWrite(PIN_LED_BLUE, LOW);
+  display_text_pintu_darurat("GERBANG DARURAT DITUTUP", 0, 0);
+  Serial.println(" → GERBANG DITUTUP");
+  digitalWrite(PIN_LED_BLUE, HIGH);
+  servo_gerak(100,1000,0);
+  Blynk.virtualWrite(2, 1); // KIRIM STATUS DARURAT
+  digitalWrite(PIN_LED_BLUE, LOW);
+}
+
+// ========================== BLYNK VIRTUAL PIN ==========================
+BLYNK_WRITE(V2) {
+  int pinValue = param.asInt();
+  if (pinValue == 1) {
+    Serial.println("GERBANG DARURAT DIBUKA");
+    buka_gerbang_darurat();
+  } else {
+    Serial.println("GERBANG DARURAT DITUTUP");
+    tutup_gerbang_darurat();
+    Blynk.virtualWrite(2, 0); // KIRIM STATUS DARURAT
+  }
+}
+// // ========================== MEMBACA ULTRASONIK ==========================
+// void read_ultrasonic(int OUTPUT, int INPUT)  {
+//  // Triger OUTPUT🙃 // Echo INPUT
+//   pinMode(OUTPUT, OUTPUT);
+//   pinMode(INPUT, INPUT);
+//   digitalWrite(OUTPUT, LOW);
+//   delayMicroseconds(2);
+//   digitalWrite(OUTPUT, HIGH);
+//   delayMicroseconds(10);
+//   digitalWrite(OUTPUT, LOW);
+
+//   jarak_cm = pulseIn(INPUT, HIGH) * 0.034 / 2;
+//   Serial.print("Jarak: ");
+//   Serial.print(jarak_cm);
+//   Serial.println(" cm");
+
+//   if (jarak_cm < 5) {
+//     Serial.println("GERBANG DITUTUP KARNA TIDAK ADA KENDARAAN");
+//     display_OLED_CUSTOM_1("GERBANG DITUTUP KARNA TIDAK ADA KENDARAAN", 0, 0);
+//     tutup_gerbang_darurat();
+//   }else{
+//     Serial.println("Tidak ada Kendaraan");
+//   }
+// }
+
 
 // ========================== SETUP ========================== 
 void setup() {
   Serial.begin(115200);
   Wire.begin(PIN_SDA_OLED, PIN_SCL_OLED);
-  pin_Mode(PIN_LED_BLUE,  PIN_SERVO);
+  pin_Mode(PIN_LED_BLUE, PIN_SERVO, PIN_ECHO_PIN, PIN_TRIG_PIN);
+
+  
   blynk_access();
   SPI.begin();
   mfrc522.PCD_Init();
@@ -170,8 +238,8 @@ void setup() {
 // ========================== LOOP UTAMA ========================== 
 void loop(){
   Blynk.run(); // MENJAGA BLYNK AGAR SELALU UPDATE (AUTO REFRESH)
-
   display_OLED_CUSTOM_1("MENUNGGU KARTU...", 0, 0);
+
 
   if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
     return;
@@ -191,5 +259,5 @@ void loop(){
 
   mfrc522.PICC_HaltA();
   mfrc522.PCD_StopCrypto1();
-  delay(500);
+  delay(200);
 }
